@@ -8,33 +8,39 @@
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   </head>
   <body>
-    <div id="loginView" class="auth-container">
+    <div id="loginView" class="auth-shell">
       <div class="auth-card">
-        <h1>BUMDes Kasir</h1>
-        <p>Masuk ke sistem kasir BUMDes</p>
+        <div class="brand">
+          <div class="brand-icon">B</div>
+          <div>
+            <h1>BUMDes Kasir</h1>
+            <p>Sistem kasir desa modern</p>
+          </div>
+        </div>
 
-        <form id="loginForm">
+        <form id="loginForm" class="login-form">
           <label>Username</label>
           <input id="username" type="text" value="admin" required />
 
           <label>Password</label>
           <input id="password" type="password" value="admin123" required />
 
-          <button type="submit">Masuk</button>
+          <button type="submit" class="primary-btn">Masuk</button>
         </form>
 
         <div id="loginError" class="message error hidden"></div>
       </div>
     </div>
 
-    <div id="appView" class="hidden">
+    <div id="appView" class="hidden app-shell">
       <header class="topbar">
-        <div>
-          <h2>BUMDes Kasir</h2>
+        <div class="brand-mini">
+          <span class="brand-pill">BUMDes</span>
+          <h2>Kasir Desa</h2>
         </div>
-        <div class="user-panel">
+        <div class="topbar-actions">
           <span id="cashierName">Admin</span>
-          <button id="logoutBtn" class="secondary">Keluar</button>
+          <button id="logoutBtn" class="ghost-btn">Keluar</button>
         </div>
       </header>
 
@@ -49,25 +55,25 @@
       <main class="page-content">
         <section id="dashboard" class="tab-panel active">
           <div class="stats-grid">
-            <div class="stat-card">
+            <article class="stat-card">
               <span>Total Penjualan</span>
               <strong id="statSales">Rp 0</strong>
-            </div>
-            <div class="stat-card">
+            </article>
+            <article class="stat-card">
               <span>Transaksi</span>
               <strong id="statTransactions">0</strong>
-            </div>
-            <div class="stat-card">
+            </article>
+            <article class="stat-card">
               <span>Profit</span>
               <strong id="statProfit">Rp 0</strong>
-            </div>
-            <div class="stat-card">
+            </article>
+            <article class="stat-card warning">
               <span>Stok Minim</span>
               <strong id="statLowStock">0</strong>
-            </div>
+            </article>
           </div>
 
-          <div class="card-list">
+          <div class="two-cols">
             <div class="panel">
               <h3>Produk stok minim</h3>
               <table>
@@ -75,7 +81,7 @@
                   <tr>
                     <th>Produk</th>
                     <th>Stok</th>
-                    <th>Min</th>
+                    <th>Minimum</th>
                   </tr>
                 </thead>
                 <tbody id="lowStockTable"></tbody>
@@ -104,14 +110,14 @@
               <h3>Manajemen Produk</h3>
             </div>
 
-            <div class="filter-row">
+            <div class="toolbar">
               <input id="productSearch" type="text" placeholder="Cari produk, barcode, atau SKU" />
               <select id="categoryFilter">
                 <option value="">Semua kategori</option>
               </select>
             </div>
 
-            <form id="productForm" class="product-form">
+            <form id="productForm" class="grid-form">
               <input id="productId" type="hidden" />
               <input id="barcode" placeholder="Barcode" required />
               <input id="sku" placeholder="SKU" />
@@ -123,8 +129,8 @@
               <input id="minStock" type="number" placeholder="Stok minimum" min="0" value="5" />
               <input id="unit" placeholder="Satuan" value="pcs" />
               <div class="button-row">
-                <button type="submit">Simpan Produk</button>
-                <button type="button" id="cancelProductEdit" class="secondary">Batal</button>
+                <button type="submit" class="primary-btn">Simpan Produk</button>
+                <button type="button" id="cancelProductEdit" class="ghost-btn">Batal</button>
               </div>
             </form>
           </div>
@@ -151,16 +157,16 @@
 
         <section id="sales" class="tab-panel hidden">
           <div class="sales-layout">
-            <div class="panel sales-panel">
+            <div class="panel">
               <h3>Penjualan</h3>
 
-              <div class="barcode-box">
-                <input id="barcodeInput" type="text" placeholder="Scan barcode / ketik barcode lalu Enter" />
-                <button id="addByBarcodeBtn" type="button">Tambah</button>
+              <div class="toolbar compact">
+                <input id="barcodeInput" type="text" placeholder="Scan barcode atau ketik lalu Enter" />
+                <button id="addByBarcodeBtn" class="primary-btn">Tambah</button>
               </div>
 
               <div id="scannerContainer" class="scanner hidden"></div>
-              <button id="toggleScannerBtn" class="secondary">Aktifkan Kamera Scanner</button>
+              <button id="toggleScannerBtn" class="secondary-btn">Aktifkan Kamera Scanner</button>
 
               <table>
                 <thead>
@@ -176,11 +182,11 @@
               </table>
 
               <div class="checkout-box">
-                <div class="checkout-row">
+                <div class="field-row">
                   <label>Nama Pelanggan</label>
                   <input id="customerName" type="text" placeholder="Umum" />
                 </div>
-                <div class="checkout-row">
+                <div class="field-row">
                   <label>Pembayaran</label>
                   <select id="paymentType">
                     <option value="Tunai">Tunai</option>
@@ -190,13 +196,14 @@
                 </div>
               </div>
 
-              <div class="totals">
-                <div><span>Total</span><strong id="cartTotal">Rp 0</strong></div>
-                <button id="checkoutBtn" class="primary">Simpan Transaksi</button>
+              <div class="checkout-total">
+                <span>Total</span>
+                <strong id="cartTotal">Rp 0</strong>
+                <button id="checkoutBtn" class="primary-btn">Simpan Transaksi</button>
               </div>
             </div>
 
-            <div class="panel quick-product-panel">
+            <div class="panel">
               <h3>Produk Cepat</h3>
               <div id="quickProducts" class="quick-products"></div>
             </div>
@@ -205,51 +212,115 @@
 
         <section id="reports" class="tab-panel hidden">
           <div class="panel">
-            <h3>Laporan Penjualan</h3>
-            <div class="filter-row">
+            <h3>Laporan</h3>
+            <div class="toolbar report-toolbar">
               <input id="reportFrom" type="date" />
               <input id="reportTo" type="date" />
-              <button id="applyReportBtn">Tampil</button>
-              <button id="exportPdfBtn" class="secondary">Export PDF</button>
-              <button id="exportExcelBtn" class="secondary">Export Excel</button>
+              <button id="applyReportBtn" class="primary-btn">Tampil</button>
+              <button id="exportPdfBtn" class="secondary-btn">Export PDF</button>
+              <button id="exportExcelBtn" class="secondary-btn">Export Excel</button>
             </div>
 
             <div class="stats-grid small-grid">
-              <div class="stat-card">
+              <article class="stat-card">
                 <span>Penjualan</span>
                 <strong id="reportSales">Rp 0</strong>
-              </div>
-              <div class="stat-card">
+              </article>
+              <article class="stat-card">
                 <span>Profit</span>
                 <strong id="reportProfit">Rp 0</strong>
-              </div>
-              <div class="stat-card">
+              </article>
+              <article class="stat-card">
                 <span>Transaksi</span>
                 <strong id="reportTransactions">0</strong>
-              </div>
+              </article>
             </div>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Kode</th>
-                  <th>Pelanggan</th>
-                  <th>Jumlah</th>
-                  <th>Profit</th>
-                  <th>Waktu</th>
-                  <th>Struk</th>
-                </tr>
-              </thead>
-              <tbody id="reportTableBody"></tbody>
-            </table>
+            <div class="report-blocks">
+              <div class="mini-panel">
+                <h4>Riwayat Transaksi</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kode</th>
+                      <th>Pelanggan</th>
+                      <th>Jumlah</th>
+                      <th>Profit</th>
+                      <th>Waktu</th>
+                      <th>Struk</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reportTableBody"></tbody>
+                </table>
+              </div>
+
+              <div class="mini-panel">
+                <h4>Per Hari</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Tanggal</th>
+                      <th>Transaksi</th>
+                      <th>Penjualan</th>
+                      <th>Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dailyReportTable"></tbody>
+                </table>
+              </div>
+
+              <div class="mini-panel">
+                <h4>Per Bulan</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bulan</th>
+                      <th>Transaksi</th>
+                      <th>Penjualan</th>
+                      <th>Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monthlyReportTable"></tbody>
+                </table>
+              </div>
+
+              <div class="mini-panel">
+                <h4>Produk Terlaris</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Produk</th>
+                      <th>Kategori</th>
+                      <th>Qty</th>
+                      <th>Penjualan</th>
+                    </tr>
+                  </thead>
+                  <tbody id="productSalesTable"></tbody>
+                </table>
+              </div>
+
+              <div class="mini-panel">
+                <h4>Performa Kasir</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kasir</th>
+                      <th>Role</th>
+                      <th>Transaksi</th>
+                      <th>Penjualan</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cashierPerformanceTable"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
         <section id="users" class="tab-panel hidden">
           <div class="panel">
-            <h3>Kelola Pengguna</h3>
-            <form id="userForm" class="product-form">
-              <input id="userId" type="hidden" />
+            <h3>Kelola User</h3>
+            <form id="userForm" class="grid-form">
               <input id="userUsername" placeholder="Username" required />
               <input id="userPassword" type="password" placeholder="Password" required />
               <select id="userRole">
@@ -258,8 +329,8 @@
                 <option value="admin">Admin</option>
               </select>
               <div class="button-row">
-                <button type="submit">Simpan User</button>
-                <button type="button" id="cancelUserEdit" class="secondary">Batal</button>
+                <button type="submit" class="primary-btn">Simpan User</button>
+                <button type="button" id="cancelUserEdit" class="ghost-btn">Batal</button>
               </div>
             </form>
           </div>
@@ -272,7 +343,6 @@
                   <th>Username</th>
                   <th>Role</th>
                   <th>Created</th>
-                  <th>Aksi</th>
                 </tr>
               </thead>
               <tbody id="userTableBody"></tbody>

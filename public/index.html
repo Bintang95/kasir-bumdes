@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const dataDir = path.join(__dirname, 'data');
 const dbPath = path.join(dataDir, 'bumdes.db');
-const useMysql = Boolean(process.env.MYSQL_HOST || process.env.DB_HOST);
+let useMysql = Boolean(process.env.MYSQL_HOST || process.env.DB_HOST);
 let mysqlPool = null;
 
 if (!fs.existsSync(dataDir)) {
@@ -22,23 +22,23 @@ if (!fs.existsSync(dataDir)) {
 const sqliteDb = new sqlite3.Database(dbPath);
 
 function hashValue(value) {
-  return crypto.createHash('sha256').update(value).digest('hex');
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
 
 function getMysqlPool() {
   if (!mysqlPool) {
     mysqlPool = mysql.createPool({
-      host: process.env.MYSQL_HOST || 'localhost',
-      port: Number(process.env.MYSQL_PORT || 3306),
-      user: process.env.MYSQL_USER || 'root',
-      password: process.env.MYSQL_PASSWORD || '',
-      database: process.env.MYSQL_DATABASE || 'bumdes_kasir',
+      host: process.env.MYSQL_HOST || process.env.DB_HOST || 'localhost',
+      port: Number(process.env.MYSQL_PORT || process.env.DB_PORT || 3306),
+      user: process.env.MYSQL_USER || process.env.DB_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || process.env.DB_NAME || 'bumdes_kasir',
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
+      multipleStatements: true,
     });
   }
-
   return mysqlPool;
 }
 
@@ -84,12 +84,10 @@ async function all(sql, params = []) {
   });
 }
 
-function requireRole(roleNames) {
-  const allowed = Array.isArray(roleNames) ? roleNames : [roleNames];
-
+function requireRole(roles) {
+  const allowed = Array.isArray(roles) ? roles : [roles];
   return (req, res, next) => {
-    const userRole = req.user && req.user.role;
-    if (!userRole || !allowed.includes(userRole)) {
+    if (!req.user || !allowed.includes(req.user.role)) {
       return res.status(403).json({ message: 'Akses ditolak untuk role ini' });
     }
     next();
@@ -105,7 +103,7 @@ function authMiddleware(req, res, next) {
   }
 
   const tokenParts = token.split('-');
-  const userId = Number(tokenParts[1]);
+  const userId = Number(tokenParts[0]);
 
   if (!userId) {
     return res.status(401).json({ message: 'Token tidak valid' });
@@ -116,7 +114,6 @@ function authMiddleware(req, res, next) {
       if (!user) {
         return res.status(401).json({ message: 'User tidak ditemukan' });
       }
-
       req.user = {
         id: user.id,
         username: user.username,
@@ -127,17 +124,20 @@ function authMiddleware(req, res, next) {
     .catch(() => res.status(401).json({ message: 'Token tidak valid' }));
 }
 
-async function initDatabase() {
-  if (useMysql) {
-    try {
-      await getMysqlPool().query('SELECT 1');
-      console.log('MySQL connected');
-    } catch (error) {
-      console.error('MySQL connection failed, falling back to SQLite:', error.message);
-      process.env.MYSQL_HOST = '';
-      global.useMysql = false;
-    }
+async function ensureMysqlConnection() {
+  if (!useMysql) return;
+
+  try {
+    await getMysqlPool().query('SELECT 1');
+    console.log('MySQL connected');
+  } catch (error) {
+    console.error('MySQL connection failed, using SQLite fallback:', error.message);
+    useMysql = false;
   }
+}
+
+async function initDatabase() {
+  await ensureMysqlConnection();
 
   if (useMysql) {
     await run(`
@@ -147,7 +147,7 @@ async function initDatabase() {
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'admin',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      ) ENGINE=InnoDB
     `);
 
     await run(`
@@ -164,7 +164,7 @@ async function initDatabase() {
         unit VARCHAR(50) DEFAULT 'pcs',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
+      ) ENGINE=InnoDB
     `);
 
     await run(`
@@ -176,8 +176,10 @@ async function initDatabase() {
         total_amount INT NOT NULL DEFAULT 0,
         total_profit INT NOT NULL DEFAULT 0,
         created_by INT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_created_by (created_by),
+        INDEX idx_created_at (created_at)
+      ) ENGINE=InnoDB
     `);
 
     await run(`
@@ -191,8 +193,8 @@ async function initDatabase() {
         purchase_price INT NOT NULL,
         subtotal INT NOT NULL,
         profit INT NOT NULL,
-        FOREIGN KEY (transaction_id) REFERENCES transactions(id)
-      )
+        FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB
     `);
   } else {
     await run(`
@@ -267,7 +269,7 @@ async function initDatabase() {
   }
 
   const productCount = await get('SELECT COUNT(*) AS total FROM products');
-  if (!productCount || productCount.total === 0) {
+  if (!productCount || Number(productCount.total) === 0) {
     const seedProducts = [
       ['123456789012', 'BR-001', 'Beras 5kg', 'Sembako', 42000, 55000, 25, 10, 'karung'],
       ['987654321098', 'MN-002', 'Minyak Goreng 2L', 'Sembako', 25000, 32000, 18, 8, 'botol'],
@@ -297,25 +299,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'BUMDes cashier API ready', database: useMysql ? 'mysql' : 'sqlite' });
-});
-
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-
   if (!username || !password) {
     return res.status(400).json({ message: 'Username dan password wajib diisi' });
   }
 
   const user = await get('SELECT * FROM users WHERE username = ?', [username]);
-
   if (!user) {
     return res.status(401).json({ message: 'Username tidak ditemukan' });
   }
 
-  const passwordHash = hashValue(password);
-  if (user.password_hash !== passwordHash) {
+  if (user.password_hash !== hashValue(password)) {
     return res.status(401).json({ message: 'Password salah' });
   }
 
@@ -330,6 +325,10 @@ app.post('/api/login', async (req, res) => {
   });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', database: useMysql ? 'mysql' : 'sqlite' });
+});
+
 app.get('/api/users', requireRole(['admin']), async (req, res) => {
   const users = await all('SELECT id, username, role, created_at FROM users ORDER BY created_at DESC');
   res.json(users);
@@ -337,28 +336,26 @@ app.get('/api/users', requireRole(['admin']), async (req, res) => {
 
 app.post('/api/users', requireRole(['admin']), async (req, res) => {
   const { username, password, role } = req.body;
-
   if (!username || !password || !role) {
     return res.status(400).json({ message: 'Username, password, dan role wajib diisi' });
   }
-
   if (!['admin', 'cashier', 'operator'].includes(role)) {
     return res.status(400).json({ message: 'Role tidak valid' });
   }
 
   try {
     const result = await run('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', [username, hashValue(password), role]);
-    const created = await get('SELECT id, username, role, created_at FROM users WHERE id = ?', [result.id]);
-    res.status(201).json(created);
+    const user = await get('SELECT id, username, role, created_at FROM users WHERE id = ?', [result.id]);
+    res.status(201).json(user);
   } catch (error) {
-    return res.status(409).json({ message: 'Username sudah dipakai' });
+    res.status(409).json({ message: 'Username sudah digunakan' });
   }
 });
 
 app.get('/api/products', authMiddleware, async (req, res) => {
   const { search = '', category = '' } = req.query;
   let where = [];
-  let params = [];
+  const params = [];
 
   if (search) {
     where.push('(name LIKE ? OR barcode LIKE ? OR sku LIKE ?)');
@@ -376,23 +373,30 @@ app.get('/api/products', authMiddleware, async (req, res) => {
     ORDER BY name ASC
   `;
 
-  const products = await all(query, params);
-  res.json(products);
+  const items = await all(query, params);
+  res.json(items);
 });
 
 app.get('/api/products/categories', authMiddleware, async (req, res) => {
   const rows = await all('SELECT DISTINCT category FROM products ORDER BY category ASC');
-  res.json(rows.map((r) => r.category));
+  res.json(rows.map((row) => row.category));
 });
 
 app.get('/api/products/low-stock', authMiddleware, async (req, res) => {
-  const products = await all('SELECT * FROM products WHERE stock <= min_stock ORDER BY stock ASC');
-  res.json(products);
+  const rows = await all('SELECT * FROM products WHERE stock <= min_stock ORDER BY stock ASC');
+  res.json(rows);
+});
+
+app.get('/api/products/:barcode', authMiddleware, async (req, res) => {
+  const product = await get('SELECT * FROM products WHERE barcode = ?', [req.params.barcode]);
+  if (!product) {
+    return res.status(404).json({ message: 'Produk tidak ditemukan' });
+  }
+  res.json(product);
 });
 
 app.post('/api/products', authMiddleware, requireRole(['admin', 'operator']), async (req, res) => {
   const product = req.body;
-
   if (!product.barcode || !product.name || !product.selling_price) {
     return res.status(400).json({ message: 'Barcode, nama, dan harga jual wajib diisi' });
   }
@@ -413,45 +417,35 @@ app.post('/api/products', authMiddleware, requireRole(['admin', 'operator']), as
         product.unit || 'pcs',
       ]
     );
-
     const created = await get('SELECT * FROM products WHERE id = ?', [result.id]);
     res.status(201).json(created);
   } catch (error) {
-    if (error.code === 'SQLITE_CONSTRAINT' || error.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ message: 'Barcode atau SKU sudah digunakan' });
-    }
-    res.status(500).json({ message: 'Gagal menyimpan produk', error: error.message });
+    res.status(409).json({ message: 'Barcode atau SKU sudah digunakan' });
   }
 });
 
 app.put('/api/products/:id', authMiddleware, requireRole(['admin', 'operator']), async (req, res) => {
-  const { id } = req.params;
   const product = req.body;
+  await run(
+    `UPDATE products
+     SET barcode = ?, sku = ?, name = ?, category = ?, purchase_price = ?, selling_price = ?, stock = ?, min_stock = ?, unit = ?
+     WHERE id = ?`,
+    [
+      product.barcode.trim(),
+      product.sku ? product.sku.trim() : null,
+      product.name.trim(),
+      product.category || 'Umum',
+      Number(product.purchase_price || 0),
+      Number(product.selling_price),
+      Number(product.stock || 0),
+      Number(product.min_stock || 5),
+      product.unit || 'pcs',
+      req.params.id,
+    ]
+  );
 
-  try {
-    await run(
-      `UPDATE products
-       SET barcode = ?, sku = ?, name = ?, category = ?, purchase_price = ?, selling_price = ?, stock = ?, min_stock = ?, unit = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        product.barcode.trim(),
-        product.sku ? product.sku.trim() : null,
-        product.name.trim(),
-        product.category || 'Umum',
-        Number(product.purchase_price || 0),
-        Number(product.selling_price),
-        Number(product.stock || 0),
-        Number(product.min_stock || 5),
-        product.unit || 'pcs',
-        id,
-      ]
-    );
-
-    const updated = await get('SELECT * FROM products WHERE id = ?', [id]);
-    res.json(updated);
-  } catch (error) {
-    res.status(500).json({ message: 'Gagal mengupdate produk', error: error.message });
-  }
+  const updated = await get('SELECT * FROM products WHERE id = ?', [req.params.id]);
+  res.json(updated);
 });
 
 app.delete('/api/products/:id', authMiddleware, requireRole(['admin', 'operator']), async (req, res) => {
@@ -459,40 +453,15 @@ app.delete('/api/products/:id', authMiddleware, requireRole(['admin', 'operator'
   res.json({ message: 'Produk berhasil dihapus' });
 });
 
-app.get('/api/products/:barcode', authMiddleware, async (req, res) => {
-  const product = await get('SELECT * FROM products WHERE barcode = ?', [req.params.barcode]);
-  if (!product) return res.status(404).json({ message: 'Produk tidak ditemukan' });
-  res.json(product);
-});
-
-app.get('/api/transactions', authMiddleware, async (req, res) => {
-  const rows = await all(`
-    SELECT t.*, u.username AS cashier_name
-    FROM transactions t
-    LEFT JOIN users u ON u.id = t.created_by
-    ORDER BY t.created_at DESC
-  `);
-  res.json(rows);
-});
-
-app.get('/api/transactions/:id', authMiddleware, async (req, res) => {
-  const transaction = await get('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
-  const items = await all('SELECT * FROM transaction_items WHERE transaction_id = ?', [req.params.id]);
-
-  if (!transaction) return res.status(404).json({ message: 'Transaksi tidak ditemukan' });
-  res.json({ transaction, items });
-});
-
 app.get('/api/reports/summary', authMiddleware, async (req, res) => {
   const { from, to } = req.query;
-  let whereClause = '';
   const params = [];
+  let whereClause = '';
 
   if (from) {
     whereClause += ' AND DATE(t.created_at) >= DATE(?)';
     params.push(from);
   }
-
   if (to) {
     whereClause += ' AND DATE(t.created_at) <= DATE(?)';
     params.push(to);
@@ -519,6 +488,129 @@ app.get('/api/reports/summary', authMiddleware, async (req, res) => {
   res.json({ summary, transactions });
 });
 
+app.get('/api/reports/daily', authMiddleware, async (req, res) => {
+  const { from, to } = req.query;
+  const params = [];
+  let whereClause = '';
+
+  if (from) {
+    whereClause += ' AND DATE(created_at) >= DATE(?)';
+    params.push(from);
+  }
+  if (to) {
+    whereClause += ' AND DATE(created_at) <= DATE(?)';
+    params.push(to);
+  }
+
+  const rows = await all(`
+    SELECT DATE(created_at) AS date,
+           COUNT(id) AS total_transactions,
+           SUM(total_amount) AS total_sales,
+           SUM(total_profit) AS total_profit
+    FROM transactions
+    WHERE 1=1 ${whereClause}
+    GROUP BY DATE(created_at)
+    ORDER BY DATE(created_at) DESC
+  `, params);
+
+  res.json(rows);
+});
+
+app.get('/api/reports/monthly', authMiddleware, async (req, res) => {
+  const { year = new Date().getFullYear() } = req.query;
+
+  const rows = await all(`
+    SELECT DATE_FORMAT(created_at, '%Y-%m') AS month,
+           COUNT(id) AS total_transactions,
+           SUM(total_amount) AS total_sales,
+           SUM(total_profit) AS total_profit
+    FROM transactions
+    WHERE YEAR(created_at) = ?
+    GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+    ORDER BY month DESC
+  `, [year]);
+
+  res.json(rows);
+});
+
+app.get('/api/reports/product-sales', authMiddleware, async (req, res) => {
+  const { from, to } = req.query;
+  const params = [];
+  let whereClause = '';
+
+  if (from) {
+    whereClause += ' AND DATE(t.created_at) >= DATE(?)';
+    params.push(from);
+  }
+  if (to) {
+    whereClause += ' AND DATE(t.created_at) <= DATE(?)';
+    params.push(to);
+  }
+
+  const rows = await all(`
+    SELECT ti.product_name,
+           p.category,
+           SUM(ti.quantity) AS total_quantity,
+           SUM(ti.subtotal) AS total_sales,
+           SUM(ti.profit) AS total_profit
+    FROM transaction_items ti
+    LEFT JOIN transactions t ON t.id = ti.transaction_id
+    LEFT JOIN products p ON p.id = ti.product_id
+    WHERE 1=1 ${whereClause}
+    GROUP BY ti.product_name, p.category
+    ORDER BY total_sales DESC
+  `, params);
+
+  res.json(rows);
+});
+
+app.get('/api/reports/cashier-performance', authMiddleware, async (req, res) => {
+  const { from, to } = req.query;
+  const params = [];
+  let whereClause = '';
+
+  if (from) {
+    whereClause += ' AND DATE(t.created_at) >= DATE(?)';
+    params.push(from);
+  }
+  if (to) {
+    whereClause += ' AND DATE(t.created_at) <= DATE(?)';
+    params.push(to);
+  }
+
+  const rows = await all(`
+    SELECT u.username,
+           u.role,
+           COUNT(t.id) AS transaction_count,
+           SUM(t.total_amount) AS total_sales,
+           SUM(t.total_profit) AS total_profit,
+           AVG(t.total_amount) AS avg_transaction
+    FROM transactions t
+    LEFT JOIN users u ON u.id = t.created_by
+    WHERE 1=1 ${whereClause}
+    GROUP BY u.id, u.username, u.role
+    ORDER BY total_sales DESC
+  `, params);
+
+  res.json(rows);
+});
+
+app.get('/api/transactions', authMiddleware, async (req, res) => {
+  const rows = await all(`
+    SELECT t.*, u.username AS cashier_name
+    FROM transactions t
+    LEFT JOIN users u ON u.id = t.created_by
+    ORDER BY t.created_at DESC
+  `);
+  res.json(rows);
+});
+
+app.get('/api/transactions/:id', authMiddleware, async (req, res) => {
+  const transaction = await get('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
+  const items = await all('SELECT * FROM transaction_items WHERE transaction_id = ?', [req.params.id]);
+  res.json({ transaction, items });
+});
+
 app.post('/api/transactions', authMiddleware, async (req, res) => {
   const { items, customerName, paymentType, cashierId } = req.body;
 
@@ -534,12 +626,15 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
 
     for (const item of items) {
       const product = await get('SELECT * FROM products WHERE id = ?', [item.productId]);
-      if (!product) throw new Error(`Produk tidak ditemukan: ${item.productId}`);
-      if (product.stock < item.quantity) throw new Error(`Stok ${product.name} tidak mencukupi`);
+      if (!product) {
+        throw new Error(`Produk tidak ditemukan: ${item.productId}`);
+      }
+      if (Number(product.stock) < Number(item.quantity)) {
+        throw new Error(`Stok ${product.name} tidak mencukupi.`);
+      }
 
       const subtotal = Number(product.selling_price) * Number(item.quantity);
       const profit = (Number(product.selling_price) - Number(product.purchase_price)) * Number(item.quantity);
-
       totalAmount += subtotal;
       totalProfit += profit;
 
@@ -568,7 +663,7 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
       );
 
       await run(
-        `UPDATE products SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE products SET stock = stock - ? WHERE id = ?`,
         [item.quantity, item.productId]
       );
     }
@@ -582,47 +677,67 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
 
 app.get('/api/transactions/:id/receipt.pdf', authMiddleware, async (req, res) => {
   const transaction = await get('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
-  if (!transaction) return res.status(404).json({ message: 'Transaksi tidak ditemukan' });
+  if (!transaction) {
+    return res.status(404).json({ message: 'Transaksi tidak ditemukan' });
+  }
 
   const items = await all('SELECT * FROM transaction_items WHERE transaction_id = ?', [req.params.id]);
+  const cashier = await get('SELECT username FROM users WHERE id = ?', [transaction.created_by]);
 
-  const doc = new PDFDocument({ margin: 40, size: 'A7' });
+  const doc = new PDFDocument({ margin: 18, size: [220, 500] });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="struk-${transaction.transaction_code}.pdf"`);
   doc.pipe(res);
 
-  doc.fontSize(16).text('BUMDes Kasir', { align: 'center' });
-  doc.moveDown();
-  doc.fontSize(9).text(`Kode: ${transaction.transaction_code}`);
+  doc.fontSize(14).font('Helvetica-Bold').text('BUMDes Kasir', { align: 'center' });
+  doc.moveDown(0.5);
+  doc.fontSize(8).font('Helvetica').text('='.repeat(28), { align: 'center' });
+  doc.text(`Kode: ${transaction.transaction_code}`);
+  doc.text(`Tgl: ${new Date(transaction.created_at).toLocaleString('id-ID')}`);
+  doc.text(`Kasir: ${cashier?.username || '-'}`);
   doc.text(`Pelanggan: ${transaction.customer_name || 'Umum'}`);
   doc.text(`Bayar: ${transaction.payment_type}`);
-  doc.text(`Waktu: ${new Date(transaction.created_at).toLocaleString('id-ID')}`);
-  doc.moveDown();
+  doc.text('='.repeat(28));
 
   items.forEach((item) => {
-    doc.text(`${item.product_name} x${item.quantity} @ ${item.unit_price.toLocaleString('id-ID')}`);
-    doc.text(`Rp ${item.subtotal.toLocaleString('id-ID')}`, { align: 'right' });
+    doc.text(`${item.product_name}`);
+    doc.text(`  ${item.quantity} x ${Number(item.unit_price).toLocaleString('id-ID')} = ${Number(item.subtotal).toLocaleString('id-ID')}`);
   });
 
-  doc.moveDown();
-  doc.fontSize(10).text(`Total: Rp ${transaction.total_amount.toLocaleString('id-ID')}`);
-  doc.text(`Profit: Rp ${transaction.total_profit.toLocaleString('id-ID')}`);
+  doc.text('='.repeat(28));
+  doc.font('Helvetica-Bold').text(`TOTAL: Rp ${Number(transaction.total_amount).toLocaleString('id-ID')}`);
+  doc.font('Helvetica').text(`Profit: Rp ${Number(transaction.total_profit).toLocaleString('id-ID')}`);
+  doc.text('='.repeat(28));
+  doc.text('Terima kasih!', { align: 'center' });
   doc.end();
 });
 
 app.get('/api/reports/export/pdf', authMiddleware, async (req, res) => {
   const { from, to } = req.query;
-  const report = await all(`
+  const params = [];
+  let whereClause = '';
+
+  if (from) {
+    whereClause += ' AND DATE(t.created_at) >= DATE(?)';
+    params.push(from);
+  }
+  if (to) {
+    whereClause += ' AND DATE(t.created_at) <= DATE(?)';
+    params.push(to);
+  }
+
+  const rows = await all(`
     SELECT t.*, u.username AS cashier_name
     FROM transactions t
     LEFT JOIN users u ON u.id = t.created_by
-    WHERE 1 = 1
-    ${from ? 'AND DATE(t.created_at) >= DATE(?)' : ''}
-    ${to ? 'AND DATE(t.created_at) <= DATE(?)' : ''}
+    WHERE 1=1 ${whereClause}
     ORDER BY t.created_at DESC
-  `, [from, to].filter(Boolean));
+  `, params);
 
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const totalSales = rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+  const totalProfit = rows.reduce((sum, row) => sum + Number(row.total_profit || 0), 0);
+
+  const doc = new PDFDocument({ margin: 35, size: 'A4' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="laporan-penjualan.pdf"');
   doc.pipe(res);
@@ -631,21 +746,13 @@ app.get('/api/reports/export/pdf', authMiddleware, async (req, res) => {
   doc.moveDown();
   doc.fontSize(10).text(`Periode: ${from || '-'} s/d ${to || '-'}`);
   doc.moveDown();
-
-  let totalSales = 0;
-  let totalProfit = 0;
-
-  report.forEach((row) => {
-    totalSales += Number(row.total_amount || 0);
-    totalProfit += Number(row.total_profit || 0);
-  });
-
-  doc.text(`Total Penjualan: Rp ${totalSales.toLocaleString('id-ID')}`);
-  doc.text(`Total Profit: Rp ${totalProfit.toLocaleString('id-ID')}`);
+  doc.text(`Total Penjualan: Rp ${Number(totalSales).toLocaleString('id-ID')}`);
+  doc.text(`Total Profit: Rp ${Number(totalProfit).toLocaleString('id-ID')}`);
+  doc.text(`Total Transaksi: ${rows.length}`);
   doc.moveDown();
 
-  report.forEach((row) => {
-    doc.text(`${row.transaction_code} | ${row.customer_name || 'Umum'} | Rp ${Number(row.total_amount).toLocaleString('id-ID')} | ${new Date(row.created_at).toLocaleString('id-ID')}`);
+  rows.forEach((row) => {
+    doc.fontSize(8).text(`${row.transaction_code} | ${row.customer_name || 'Umum'} | ${new Date(row.created_at).toLocaleString('id-ID')} | Rp ${Number(row.total_amount).toLocaleString('id-ID')} | Profit Rp ${Number(row.total_profit).toLocaleString('id-ID')}`);
   });
 
   doc.end();
@@ -653,29 +760,47 @@ app.get('/api/reports/export/pdf', authMiddleware, async (req, res) => {
 
 app.get('/api/reports/export/excel', authMiddleware, async (req, res) => {
   const { from, to } = req.query;
-  const report = await all(`
-    SELECT t.transaction_code, t.customer_name, t.total_amount, t.total_profit, t.payment_type, t.created_at, u.username AS cashier_name
+  const params = [];
+  let whereClause = '';
+
+  if (from) {
+    whereClause += ' AND DATE(t.created_at) >= DATE(?)';
+    params.push(from);
+  }
+  if (to) {
+    whereClause += ' AND DATE(t.created_at) <= DATE(?)';
+    params.push(to);
+  }
+
+  const rows = await all(`
+    SELECT t.transaction_code, t.customer_name, t.payment_type, t.total_amount, t.total_profit, u.username AS cashier_name, t.created_at
     FROM transactions t
     LEFT JOIN users u ON u.id = t.created_by
-    WHERE 1 = 1
-    ${from ? 'AND DATE(t.created_at) >= DATE(?)' : ''}
-    ${to ? 'AND DATE(t.created_at) <= DATE(?)' : ''}
+    WHERE 1=1 ${whereClause}
     ORDER BY t.created_at DESC
-  `, [from, to].filter(Boolean));
+  `, params);
 
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Laporan Penjualan');
-  sheet.columns = [
-    { header: 'Kode Transaksi', key: 'transaction_code', width: 22 },
+  const worksheet = workbook.addWorksheet('Laporan Penjualan');
+
+  worksheet.columns = [
+    { header: 'Kode', key: 'transaction_code', width: 22 },
     { header: 'Pelanggan', key: 'customer_name', width: 18 },
     { header: 'Pembayaran', key: 'payment_type', width: 14 },
-    { header: 'Total', key: 'total_amount', width: 15 },
-    { header: 'Profit', key: 'total_profit', width: 15 },
+    { header: 'Total', key: 'total_amount', width: 16 },
+    { header: 'Profit', key: 'total_profit', width: 16 },
     { header: 'Kasir', key: 'cashier_name', width: 18 },
     { header: 'Waktu', key: 'created_at', width: 22 },
   ];
 
-  report.forEach((row) => sheet.addRow({ ...row, total_amount: row.total_amount, total_profit: row.total_profit, created_at: new Date(row.created_at).toLocaleString('id-ID') }));
+  rows.forEach((row) => {
+    worksheet.addRow({
+      ...row,
+      total_amount: Number(row.total_amount),
+      total_profit: Number(row.total_profit),
+      created_at: new Date(row.created_at).toLocaleString('id-ID'),
+    });
+  });
 
   const buffer = await workbook.xlsx.writeBuffer();
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -690,11 +815,15 @@ app.get('*', (req, res) => {
 async function startServer() {
   await initDatabase();
   app.listen(PORT, () => {
-    console.log(`BUMDes cashier running at http://localhost:${PORT}`);
+    console.log(`BUMDes Cashier running at http://localhost:${PORT}`);
+    console.log('Default accounts:');
+    console.log('  admin / admin123');
+    console.log('  cashier / cashier123');
+    console.log('  operator / operator123');
   });
 }
 
 startServer().catch((error) => {
-  console.error('Failed to start server:', error);
+  console.error('Server failed to start:', error);
   process.exit(1);
 });
