@@ -1,14 +1,20 @@
 {
   "name": "kasir-bumdes",
-  "version": "1.0.0",
-  "description": "Aplikasi kasir untuk BUMDes dengan scan barcode, transaksi, stok, dan laporan",
+  "version": "2.0.0",
+  "description": "Aplikasi kasir BUMDes lengkap dengan scan barcode, MySQL, role user, laporan PDF/Excel, print struk, dan alert stok minimum",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
   "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.3.0",
     "express": "^4.18.2",
+    "mysql2": "^3.5.0",
+    "pdfkit": "^0.13.0",
     "sqlite3": "^5.1.6"
   }
 }

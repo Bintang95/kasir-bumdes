@@ -1,350 +1,287 @@
-* {
-  box-sizing: border-box;
-}
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BUMDes Kasir</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  </head>
+  <body>
+    <div id="loginView" class="auth-container">
+      <div class="auth-card">
+        <h1>BUMDes Kasir</h1>
+        <p>Masuk ke sistem kasir BUMDes</p>
 
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  background: #f3f5f7;
-  color: #1f2937;
-}
+        <form id="loginForm">
+          <label>Username</label>
+          <input id="username" type="text" value="admin" required />
 
-button,
-input,
-select {
-  font: inherit;
-}
+          <label>Password</label>
+          <input id="password" type="password" value="admin123" required />
 
-button {
-  cursor: pointer;
-}
+          <button type="submit">Masuk</button>
+        </form>
 
-.hidden {
-  display: none !important;
-}
+        <div id="loginError" class="message error hidden"></div>
+      </div>
+    </div>
 
-.auth-container {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #0f172a, #1e3a8a);
-}
+    <div id="appView" class="hidden">
+      <header class="topbar">
+        <div>
+          <h2>BUMDes Kasir</h2>
+        </div>
+        <div class="user-panel">
+          <span id="cashierName">Admin</span>
+          <button id="logoutBtn" class="secondary">Keluar</button>
+        </div>
+      </header>
 
-.auth-card {
-  width: min(420px, 90vw);
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.18);
-  padding: 30px;
-}
+      <nav class="nav-tabs">
+        <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+        <button class="tab-button" data-tab="products">Produk</button>
+        <button class="tab-button" data-tab="sales">Penjualan</button>
+        <button class="tab-button" data-tab="reports">Laporan</button>
+        <button class="tab-button" data-tab="users" id="usersTabButton">User</button>
+      </nav>
 
-.auth-card h1 {
-  margin: 0 0 10px;
-  text-align: center;
-}
+      <main class="page-content">
+        <section id="dashboard" class="tab-panel active">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span>Total Penjualan</span>
+              <strong id="statSales">Rp 0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Transaksi</span>
+              <strong id="statTransactions">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Profit</span>
+              <strong id="statProfit">Rp 0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Stok Minim</span>
+              <strong id="statLowStock">0</strong>
+            </div>
+          </div>
 
-.auth-card p {
-  margin: 0 0 20px;
-  text-align: center;
-  color: #475569;
-}
+          <div class="card-list">
+            <div class="panel">
+              <h3>Produk stok minim</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Produk</th>
+                    <th>Stok</th>
+                    <th>Min</th>
+                  </tr>
+                </thead>
+                <tbody id="lowStockTable"></tbody>
+              </table>
+            </div>
 
-#loginForm {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+            <div class="panel">
+              <h3>Transaksi terakhir</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Kode</th>
+                    <th>Total</th>
+                    <th>Waktu</th>
+                  </tr>
+                </thead>
+                <tbody id="latestTransactionsTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
-#loginForm input {
-  padding: 12px 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  font-size: 1rem;
-}
+        <section id="products" class="tab-panel hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Manajemen Produk</h3>
+            </div>
 
-#loginForm button,
-.primary,
-.secondary {
-  padding: 12px 16px;
-  border: none;
-  border-radius: 10px;
-  font-weight: 700;
-}
+            <div class="filter-row">
+              <input id="productSearch" type="text" placeholder="Cari produk, barcode, atau SKU" />
+              <select id="categoryFilter">
+                <option value="">Semua kategori</option>
+              </select>
+            </div>
 
-.primary {
-  background: #2563eb;
-  color: white;
-}
+            <form id="productForm" class="product-form">
+              <input id="productId" type="hidden" />
+              <input id="barcode" placeholder="Barcode" required />
+              <input id="sku" placeholder="SKU" />
+              <input id="name" placeholder="Nama produk" required />
+              <input id="category" placeholder="Kategori" value="Umum" />
+              <input id="purchasePrice" type="number" placeholder="Harga beli" min="0" required />
+              <input id="sellingPrice" type="number" placeholder="Harga jual" min="0" required />
+              <input id="stock" type="number" placeholder="Stok" min="0" required />
+              <input id="minStock" type="number" placeholder="Stok minimum" min="0" value="5" />
+              <input id="unit" placeholder="Satuan" value="pcs" />
+              <div class="button-row">
+                <button type="submit">Simpan Produk</button>
+                <button type="button" id="cancelProductEdit" class="secondary">Batal</button>
+              </div>
+            </form>
+          </div>
 
-.secondary {
-  background: #e2e8f0;
-  color: #1e293b;
-}
+          <div class="panel">
+            <h3>Daftar Produk</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Barcode</th>
+                  <th>Nama</th>
+                  <th>Kategori</th>
+                  <th>Harga Beli</th>
+                  <th>Harga Jual</th>
+                  <th>Stok</th>
+                  <th>Min</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="productTableBody"></tbody>
+            </table>
+          </div>
+        </section>
 
-.message {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 0.9rem;
-}
+        <section id="sales" class="tab-panel hidden">
+          <div class="sales-layout">
+            <div class="panel sales-panel">
+              <h3>Penjualan</h3>
 
-.message.error {
-  background: #fee2e2;
-  color: #b91c1c;
-}
+              <div class="barcode-box">
+                <input id="barcodeInput" type="text" placeholder="Scan barcode / ketik barcode lalu Enter" />
+                <button id="addByBarcodeBtn" type="button">Tambah</button>
+              </div>
 
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 18px 24px;
-  background: #0f172a;
-  color: white;
-}
+              <div id="scannerContainer" class="scanner hidden"></div>
+              <button id="toggleScannerBtn" class="secondary">Aktifkan Kamera Scanner</button>
 
-.topbar h2 {
-  margin: 0;
-}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Produk</th>
+                    <th>Qty</th>
+                    <th>Harga</th>
+                    <th>Subtotal</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="cartTable"></tbody>
+              </table>
 
-.user-panel {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
+              <div class="checkout-box">
+                <div class="checkout-row">
+                  <label>Nama Pelanggan</label>
+                  <input id="customerName" type="text" placeholder="Umum" />
+                </div>
+                <div class="checkout-row">
+                  <label>Pembayaran</label>
+                  <select id="paymentType">
+                    <option value="Tunai">Tunai</option>
+                    <option value="Transfer">Transfer</option>
+                    <option value="QRIS">QRIS</option>
+                  </select>
+                </div>
+              </div>
 
-.nav-tabs {
-  display: flex;
-  gap: 12px;
-  padding: 12px 24px;
-  background: #e2e8f0;
-  border-bottom: 1px solid #cbd5e1;
-}
+              <div class="totals">
+                <div><span>Total</span><strong id="cartTotal">Rp 0</strong></div>
+                <button id="checkoutBtn" class="primary">Simpan Transaksi</button>
+              </div>
+            </div>
 
-.tab-button {
-  border: none;
-  background: transparent;
-  padding: 10px 14px;
-  border-radius: 10px;
-  color: #334155;
-  font-weight: 700;
-}
+            <div class="panel quick-product-panel">
+              <h3>Produk Cepat</h3>
+              <div id="quickProducts" class="quick-products"></div>
+            </div>
+          </div>
+        </section>
 
-.tab-button.active {
-  background: white;
-  color: #0f172a;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
-}
+        <section id="reports" class="tab-panel hidden">
+          <div class="panel">
+            <h3>Laporan Penjualan</h3>
+            <div class="filter-row">
+              <input id="reportFrom" type="date" />
+              <input id="reportTo" type="date" />
+              <button id="applyReportBtn">Tampil</button>
+              <button id="exportPdfBtn" class="secondary">Export PDF</button>
+              <button id="exportExcelBtn" class="secondary">Export Excel</button>
+            </div>
 
-.page-content {
-  padding: 24px;
-}
+            <div class="stats-grid small-grid">
+              <div class="stat-card">
+                <span>Penjualan</span>
+                <strong id="reportSales">Rp 0</strong>
+              </div>
+              <div class="stat-card">
+                <span>Profit</span>
+                <strong id="reportProfit">Rp 0</strong>
+              </div>
+              <div class="stat-card">
+                <span>Transaksi</span>
+                <strong id="reportTransactions">0</strong>
+              </div>
+            </div>
 
-.tab-panel {
-  display: block;
-}
+            <table>
+              <thead>
+                <tr>
+                  <th>Kode</th>
+                  <th>Pelanggan</th>
+                  <th>Jumlah</th>
+                  <th>Profit</th>
+                  <th>Waktu</th>
+                  <th>Struk</th>
+                </tr>
+              </thead>
+              <tbody id="reportTableBody"></tbody>
+            </table>
+          </div>
+        </section>
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  margin-bottom: 20px;
-}
+        <section id="users" class="tab-panel hidden">
+          <div class="panel">
+            <h3>Kelola Pengguna</h3>
+            <form id="userForm" class="product-form">
+              <input id="userId" type="hidden" />
+              <input id="userUsername" placeholder="Username" required />
+              <input id="userPassword" type="password" placeholder="Password" required />
+              <select id="userRole">
+                <option value="cashier">Cashier</option>
+                <option value="operator">Operator</option>
+                <option value="admin">Admin</option>
+              </select>
+              <div class="button-row">
+                <button type="submit">Simpan User</button>
+                <button type="button" id="cancelUserEdit" class="secondary">Batal</button>
+              </div>
+            </form>
+          </div>
 
-.stat-card,
-.panel {
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
-}
+          <div class="panel">
+            <h3>Daftar User</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Created</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="userTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
 
-.stat-card {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stat-card span {
-  color: #64748b;
-  font-size: 0.9rem;
-}
-
-.stat-card strong {
-  font-size: 1.4rem;
-}
-
-.card-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-}
-
-.panel {
-  padding: 18px;
-}
-
-.panel h3 {
-  margin-top: 0;
-}
-
-.panel-header {
-  margin-bottom: 14px;
-}
-
-.filter-row,
-.button-row,
-.checkout-row,
-.barcode-box {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.filter-row,
-.barcode-box {
-  flex-wrap: wrap;
-}
-
-.product-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.product-form input,
-.filter-row input,
-.filter-row select,
-.barcode-box input,
-.checkout-row input,
-.checkout-row select {
-  width: 100%;
-  padding: 12px 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-}
-
-button.primary,
-button.secondary {
-  min-width: 120px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-th,
-td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 12px 10px;
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  color: #475569;
-  font-size: 0.82rem;
-  text-transform: uppercase;
-}
-
-.sales-layout {
-  display: grid;
-  grid-template-columns: 2.3fr 1fr;
-  gap: 18px;
-}
-
-.sales-panel {
-  min-height: 500px;
-}
-
-.barcode-box {
-  margin-bottom: 16px;
-}
-
-.barcode-box input {
-  flex: 1;
-}
-
-.scanner {
-  width: 100%;
-  max-width: 400px;
-  margin: 0 auto 18px;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid #cbd5e1;
-  background: #0f172a;
-  min-height: 220px;
-}
-
-.checkout-box {
-  margin-top: 16px;
-  display: grid;
-  gap: 12px;
-}
-
-.checkout-row {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-}
-
-.totals {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 16px;
-  gap: 12px;
-}
-
-.totals span {
-  color: #64748b;
-}
-
-.quick-products {
-  display: grid;
-  gap: 12px;
-}
-
-.quick-product-item {
-  padding: 10px 12px;
-  border: 1px solid #dbeafe;
-  border-radius: 10px;
-  background: #f8fafc;
-}
-
-.quick-product-item h4,
-.quick-product-item p {
-  margin: 0;
-}
-
-.quick-product-item button {
-  margin-top: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  background: #dbeafe;
-  border: none;
-  border-radius: 8px;
-  color: #1d4ed8;
-  font-weight: 700;
-}
-
-.small-grid {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-}
-
-@media (max-width: 760px) {
-  .sales-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .checkout-row {
-    grid-template-columns: 1fr;
-  }
-
-  .nav-tabs {
-    overflow-x: auto;
-  }
-}
+    <script src="/app.js"></script>
+  </body>
+</html>
